@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "preinstall": "cd ../engine && npm install && npm run build && npm pack"
+    "postinstall": "cd ../engine && npm install && npm run build && npm pack"
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.8",
