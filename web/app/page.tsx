@@ -16,23 +16,31 @@ export default function Home() {
     gpuMemory: 0,
   })
   const [progress, setProgress] = useState(0)
+  const [inVr, setInVr] = useState(false)
 
-  const initEngine = useCallback(async () => {
-    if (canvasRef.current) {
-      // Initialize engine
-      try {
-        const engine = new Engine(canvasRef.current)
-        engineRef.current = engine
-        await engine.init()
-        await engine.loadModel("/models/塞尔凯特/塞尔凯特.pmx")
-        setLoading(false)
+  const initEngine = useCallback(
+    async (xr: boolean) => {
+      if (canvasRef.current) {
+        // Initialize engine
+        try {
+          const engine = new Engine(canvasRef.current)
+          engineRef.current = engine
+          await engine.init(xr)
+          await engine.loadModel("/models/塞尔凯特/塞尔凯特.pmx")
+          setLoading(false)
 
-        engine.runRenderLoop(() => {
-          setStats(engine.getStats())
-        })
+          if (xr) {
+            engine.runRenderLoopXR(() => {
+              setStats(engine.getStats())
+            })
+          } else {
+            engine.runRenderLoop(() => {
+              setStats(engine.getStats())
+            })
+          }
 
-        engine.rotateBones(
-          ["腰", "首", "右腕", "左腕", "右ひざ"],
+          engine.rotateBones(
+            ["腰", "首", "右腕", "左腕", "右ひざ"],
           [
             new Quat(-0.4, -0.3, 0, 1),
             new Quat(0.3, -0.3, -0.3, 1),
@@ -46,20 +54,22 @@ export default function Home() {
         setEngineError(error instanceof Error ? error.message : "Unknown error")
       }
     }
-  }, [])
+  },
+  []
+)
 
-  useEffect(() => {
-    void (async () => {
-      initEngine()
-    })()
+useEffect(() => {
+  void (async () => {
+    await initEngine(inVr)
+  })()
 
-    // Cleanup on unmount
-    return () => {
-      if (engineRef.current) {
-        engineRef.current.dispose()
-      }
+  // Cleanup on unmount
+  return () => {
+    if (engineRef.current) {
+      engineRef.current.dispose()
     }
-  }, [initEngine])
+  }
+}, [initEngine, inVr])
 
   useEffect(() => {
     if (loading) {
@@ -79,6 +89,17 @@ export default function Home() {
   return (
     <div className="fixed inset-0 w-full h-full overflow-hidden touch-none">
       <Header stats={stats} />
+
+      {!inVr && (
+        <button
+          onClick={async () => {
+            setInVr(true)
+          }}
+          className="absolute bottom-4 right-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded z-10"
+        >
+          Enter VR
+        </button>
+      )}
 
       {engineError && (
         <div className="absolute inset-0 w-full h-full flex items-center justify-center text-white p-6">

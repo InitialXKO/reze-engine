@@ -18,6 +18,9 @@ export class Engine {
   public camera!: Camera
   private cameraUniformBuffer!: GPUBuffer
   private cameraMatrixData = new Float32Array(36)
+  private xrSession: any | null = null
+  private xrLayer: any | null = null
+  private xrReferenceSpace: any | null = null
   private lightUniformBuffer!: GPUBuffer
   private lightData = new Float32Array(64)
   private lightCount = 0
@@ -93,27 +96,49 @@ export class Engine {
   }
 
   // Step 1: Get WebGPU device and context
-  public async init() {
-    const adapter = await navigator.gpu?.requestAdapter()
-    const device = await adapter?.requestDevice()
-    if (!device) {
-      throw new Error("WebGPU is not supported in this browser.")
+  public async init(xr: boolean = false) {
+    if (xr) {
+      this.xrSession = await (navigator as any).xr.requestSession("immersive-vr", {
+        requiredFeatures: ["local-floor"],
+      })
+      const adapter = await navigator.gpu?.requestAdapter()
+      const device = await adapter?.requestDevice({
+        requiredFeatures: ["webxr" as any],
+      })
+
+      if (!device) {
+        throw new Error("WebGPU is not supported in this browser.")
+      }
+
+      this.device = device
+      this.context = this.canvas.getContext("webgpu") as GPUCanvasContext
+      this.xrLayer = new (window as any).XRWebGPULayer(this.xrSession, this.device)
+      this.xrSession.updateRenderState({
+        baseLayer: this.xrLayer,
+      })
+      this.xrReferenceSpace = await this.xrSession.requestReferenceSpace("local-floor")
+    } else {
+      const adapter = await navigator.gpu?.requestAdapter()
+      const device = await adapter?.requestDevice()
+      if (!device) {
+        throw new Error("WebGPU is not supported in this browser.")
+      }
+      this.device = device
+
+      const context = this.canvas.getContext("webgpu")
+      if (!context) {
+        throw new Error("Failed to get WebGPU context.")
+      }
+      this.context = context
+
+      this.presentationFormat = navigator.gpu.getPreferredCanvasFormat()
+
+      this.context.configure({
+        device: this.device,
+        format: this.presentationFormat,
+        alphaMode: "premultiplied",
+      })
     }
-    this.device = device
-
-    const context = this.canvas.getContext("webgpu")
-    if (!context) {
-      throw new Error("Failed to get WebGPU context.")
-    }
-    this.context = context
-
-    this.presentationFormat = navigator.gpu.getPreferredCanvasFormat()
-
-    this.context.configure({
-      device: this.device,
-      format: this.presentationFormat,
-      alphaMode: "premultiplied",
-    })
 
     this.setupCamera()
     this.setupLighting()
@@ -1469,6 +1494,18 @@ export class Engine {
     this.animationFrameId = requestAnimationFrame(loop)
   }
 
+  public runRenderLoopXR(callback?: () => void) {
+    this.renderLoopCallback = callback || null
+    const onFrame = (_: any, frame: any) => {
+      this.xrSession.requestAnimationFrame(onFrame)
+      this.render(frame)
+      if (this.renderLoopCallback) {
+        this.renderLoopCallback()
+      }
+    }
+    this.xrSession.requestAnimationFrame(onFrame)
+  }
+
   public stopRenderLoop() {
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId)
@@ -1970,13 +2007,15 @@ export class Engine {
   }
 
   // Step 9: Render one frame
-  public render() {
+  public render(xrFrame: any = null) {
     if (this.multisampleTexture && this.camera && this.device && this.currentModel) {
       const currentTime = performance.now()
       const deltaTime = this.lastFrameTime > 0 ? (currentTime - this.lastFrameTime) / 1000 : 0.016
       this.lastFrameTime = currentTime
 
-      this.updateCameraUniforms()
+      if (!xrFrame) {
+        this.updateCameraUniforms()
+      }
       this.updateRenderTarget()
 
       this.updateModelPose(deltaTime)
@@ -2082,10 +2121,24 @@ export class Engine {
       this.drawOutlines(pass, true) // Transparent outlines
 
       pass.end()
-      this.device.queue.submit([encoder.finish()])
+
+      if (xrFrame) {
+        const pose = xrFrame.getViewerPose(this.xrReferenceSpace)
+        if (pose) {
+          for (const view of pose.views) {
+            const viewport = this.xrLayer.getViewport(view)
+            this.updateCameraUniforms(view)
+            this.device.queue.submit([encoder.finish()])
+          }
+        }
+      } else {
+        this.device.queue.submit([encoder.finish()])
+      }
 
       // Apply bloom post-processing
-      this.applyBloom()
+      if (!this.xrSession) {
+        this.applyBloom()
+      }
 
       this.updateStats(performance.now() - currentTime)
     }
@@ -2234,15 +2287,20 @@ export class Engine {
   }
 
   // Update camera uniform buffer each frame
-  private updateCameraUniforms() {
-    const viewMatrix = this.camera.getViewMatrix()
-    const projectionMatrix = this.camera.getProjectionMatrix()
-    const cameraPos = this.camera.getPosition()
-    this.cameraMatrixData.set(viewMatrix.values, 0)
-    this.cameraMatrixData.set(projectionMatrix.values, 16)
-    this.cameraMatrixData[32] = cameraPos.x
-    this.cameraMatrixData[33] = cameraPos.y
-    this.cameraMatrixData[34] = cameraPos.z
+  private updateCameraUniforms(view: any = null) {
+    if (view) {
+      this.cameraMatrixData.set(view.transform.inverse.matrix, 0)
+      this.cameraMatrixData.set(view.projectionMatrix, 16)
+    } else {
+      const viewMatrix = this.camera.getViewMatrix()
+      const projectionMatrix = this.camera.getProjectionMatrix()
+      const cameraPos = this.camera.getPosition()
+      this.cameraMatrixData.set(viewMatrix.values, 0)
+      this.cameraMatrixData.set(projectionMatrix.values, 16)
+      this.cameraMatrixData[32] = cameraPos.x
+      this.cameraMatrixData[33] = cameraPos.y
+      this.cameraMatrixData[34] = cameraPos.z
+    }
     this.device.queue.writeBuffer(this.cameraUniformBuffer, 0, this.cameraMatrixData)
   }
 
