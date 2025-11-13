@@ -6,7 +6,8 @@
     "dev": "next dev -p 4000",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "preinstall": "cd ../engine && npm install && npm run build && npm pack"
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.8",
@@ -18,7 +19,7 @@
     "next": "16.0.1",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "reze-engine": "^0.1.12",
+    "reze-engine": "file:../engine/reze-engine-0.1.12.tgz",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
