@@ -399,6 +399,16 @@ export default function Home() {
               {xrActive ? "Exit VR" : "Enter VR"}
             </Button>
           )}
+          {webxrSupported === false && (
+            <Button
+              onClick={handleEnterVr}
+              variant="destructive"
+              size="sm"
+              title="Attempt to enter VR even if not officially supported by the browser"
+            >
+              Force VR
+            </Button>
+          )}
         </div>
       )}
 
