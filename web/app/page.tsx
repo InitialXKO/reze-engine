@@ -40,7 +40,8 @@ export default function Home() {
   const [isPaused, setIsPaused] = useState(false)
   const [progress, setProgress] = useState({ current: 0, duration: 0, percentage: 0 })
 
-  const [webxrSupported, setWebxrSupported] = useState<boolean | null>(null)
+  const [hasNativeVr, setHasNativeVr] = useState(false)
+  const [hasGpuBinding, setHasGpuBinding] = useState(false)
   const [xrActive, setXrActive] = useState(false)
   const [sbsEnabled, setSbsEnabled] = useState(false)
   const [pinchZoomMode, setPinchZoomMode] = useState<"zoom" | "dolly">("zoom")
@@ -61,13 +62,14 @@ export default function Home() {
         }
       }
 
-      const hasXrGpuBinding =
+      const nativeVr = await isSessionSupported()
+      const gpuBinding =
         typeof (globalThis as typeof globalThis & { XRGPUBinding?: unknown }).XRGPUBinding !== "undefined"
-      const supported = (await isSessionSupported()) && hasXrGpuBinding
 
       if (!cancelled) {
-        setWebxrSupported(supported)
-        if (!supported) {
+        setHasNativeVr(nativeVr)
+        setHasGpuBinding(gpuBinding)
+        if (nativeVr && !gpuBinding) {
           setSbsEnabled(true)
         }
       }
@@ -216,60 +218,65 @@ export default function Home() {
   }, [])
 
   const handleEnterVr = useCallback(async () => {
-    if (!engineRef.current || !navigator.xr || xrActive) {
-      return
-    }
+    if (hasGpuBinding) {
+      if (!engineRef.current || !navigator.xr || xrActive) {
+        return
+      }
 
-    prevSbsEnabledRef.current = sbsEnabled
+      prevSbsEnabledRef.current = sbsEnabled
 
-    try {
-      const session = await navigator.xr.requestSession("immersive-vr", {
-        optionalFeatures: ["local-floor"],
-      })
+      try {
+        const session = await navigator.xr.requestSession("immersive-vr", {
+          optionalFeatures: ["local-floor"],
+        })
 
-      xrSessionRef.current = session
-      setXrActive(true)
-      setSbsEnabled(false)
+        xrSessionRef.current = session
+        setXrActive(true)
+        setSbsEnabled(false)
 
-      engineRef.current.stopRenderLoop()
-      await engineRef.current.startWebXR(session)
+        engineRef.current.stopRenderLoop()
+        await engineRef.current.startWebXR(session)
 
-      const handleEnd = () => {
-        session.removeEventListener("end", handleEnd)
-        xrSessionRef.current = null
+        const handleEnd = () => {
+          session.removeEventListener("end", handleEnd)
+          xrSessionRef.current = null
 
-        const engine = engineRef.current
-        if (!engine) {
+          const engine = engineRef.current
+          if (!engine) {
+            setXrActive(false)
+            return
+          }
+
+          engine.stopWebXR()
           setXrActive(false)
-          return
+          setSbsEnabled(prevSbsEnabledRef.current)
+
+          engine.runRenderLoop(() => {
+            setStats(engine.getStats())
+          })
         }
 
-        engine.stopWebXR()
-        setXrActive(false)
-        setSbsEnabled(prevSbsEnabledRef.current)
+        session.addEventListener("end", handleEnd)
 
-        engine.runRenderLoop(() => {
+        const onXRFrame: XRFrameRequestCallback = (_time, frame) => {
+          const engine = engineRef.current
+          if (!engine) return
+          engine.renderWebXRFrame(frame)
           setStats(engine.getStats())
-        })
-      }
+          session.requestAnimationFrame(onXRFrame)
+        }
 
-      session.addEventListener("end", handleEnd)
-
-      const onXRFrame: XRFrameRequestCallback = (_time, frame) => {
-        const engine = engineRef.current
-        if (!engine) return
-        engine.renderWebXRFrame(frame)
-        setStats(engine.getStats())
         session.requestAnimationFrame(onXRFrame)
+      } catch (e) {
+        console.error(e)
+        setXrActive(false)
+        setSbsEnabled(true)
       }
-
-      session.requestAnimationFrame(onXRFrame)
-    } catch (e) {
-      console.error(e)
-      setXrActive(false)
-      setSbsEnabled(true)
+    } else {
+      // Fallback to SBS mode if no WebGPU binding
+      setSbsEnabled((v) => !v)
     }
-  }, [sbsEnabled, xrActive])
+  }, [sbsEnabled, xrActive, hasGpuBinding])
 
   const handleExitVr = useCallback(() => {
     xrSessionRef.current?.end().catch(() => {
@@ -393,7 +400,7 @@ export default function Home() {
             Pinch: {pinchZoomMode === "zoom" ? "Zoom" : "Dolly"}
           </Button>
 
-          {webxrSupported === true && (
+          {hasNativeVr && (
             <Button onClick={xrActive ? handleExitVr : handleEnterVr} variant="secondary" size="sm">
               {xrActive ? "Exit VR" : "Enter VR"}
             </Button>
