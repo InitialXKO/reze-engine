@@ -224,6 +224,7 @@ export default function Home() {
 
     try {
       const session = await navigator.xr.requestSession("immersive-vr", {
+        requiredFeatures: ["webgpu"],
         optionalFeatures: ["local-floor"],
       })
 
@@ -396,6 +397,16 @@ export default function Home() {
           {webxrSupported === true && (
             <Button onClick={xrActive ? handleExitVr : handleEnterVr} variant="secondary" size="sm">
               {xrActive ? "Exit VR" : "Enter VR"}
+            </Button>
+          )}
+          {webxrSupported === false && (
+            <Button
+              onClick={handleEnterVr}
+              variant="destructive"
+              size="sm"
+              title="Attempt to enter VR even if not officially supported by the browser"
+            >
+              Force VR
             </Button>
           )}
         </div>
