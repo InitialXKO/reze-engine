@@ -224,6 +224,7 @@ export default function Home() {
 
     try {
       const session = await navigator.xr.requestSession("immersive-vr", {
+        requiredFeatures: ["webgpu"],
         optionalFeatures: ["local-floor"],
       })
 

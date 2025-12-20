@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     externalDir: true,
   },
   // Rely on tsconfig `paths` for resolving engine runtime deps when importing from ../engine.
+  transpilePackages: ["../../engine"],
   turbopack: {},
   // outputFileTracingRoot: join(__dirname, ".."),
 }
